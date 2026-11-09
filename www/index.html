@@ -82,17 +82,20 @@ td:first-child,th:first-child{text-align:left}
 .mini{padding:6px 10px;font-size:13px}
 .ba{display:flex;gap:6px;flex-wrap:wrap}
 .fm select{width:100%;padding:9px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx);font:inherit}
-select:disabled{opacity:.75}
+.leg{font-size:12px;color:var(--mu);margin-top:6px}
+.rls{margin:8px 0}
+.rl{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--bd);border-radius:10px;margin-bottom:6px;font-size:14px}
+.rl small{color:var(--mu);font-size:12px}
+.rl.on{border-color:var(--ac);background:rgba(31,95,74,.12)}
 </style>
 </head>
 <body>
 <header><div class="w">
-  <div class="top"><h1>Catálogo</h1><button class="btn s" id="cbtn" style="padding:6px 10px;font-size:13px">👤 Ingresar con cédula</button><button class="btn s" id="adm" style="padding:6px 10px;font-size:13px">Admin</button>
-    <label class="sel">Cliente:
-      <select id="cli"><option value="detal">Detal</option><option value="dist">Distribuidor (desde 6 uds)</option><option value="mayor">Mayorista (desde 12 uds)</option></select>
-    </label></div>
+  <div class="top"><h1>Catálogo</h1><button class="btn s" id="cbtn" style="padding:6px 10px;font-size:13px">👤 Soy cliente</button><button class="btn s" id="adm" style="padding:6px 10px;font-size:13px">Admin</button>
+    </div>
   <div class="fl"><input type="search" id="q" placeholder="Buscar referencia…"></div>
   <div class="tabs" id="tabs"></div>
+  <div class="leg">Los precios se aplican solos por referencia: Detal · Distribuidor desde 6 uds en 3 tallas (1-1-4) · Mayorista desde 12 uds en 3 tallas (2-2-8)</div>
 </div></header>
 <main><div class="grid" id="grid"></div></main>
 <div class="bar"><div class="w">
@@ -102,11 +105,12 @@ select:disabled{opacity:.75}
 <dialog id="dlg"></dialog>
 <dialog id="adlg"></dialog>
 <dialog id="cdlg"></dialog>
+<script src="config.js"></script>
 <script src="supabase.js"></script>
 <script>
 // ===== CONFIGURACIÓN SUPABASE (Project Settings > API) =====
-const SB_URL="https://ooaxvblqpovnwpthsphe.supabase.co";
-const SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9vYXh2YmxxcG92bndwdGhzcGhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQxNzAwNTMsImV4cCI6MjEwOTc0NjA1M30.q--yHSv5UDELAOy_wH3biNWgvZ-7zFuljfRfVX-y7FA"; // nunca uses la service_role
+const SB_URL=window.APP_CONFIG.url;
+const SB_KEY=window.APP_CONFIG.key;
 const MIN={detal:1,dist:6,mayor:12};
 const TN={detal:"Detal",dist:"Distribuidor",mayor:"Mayorista"};
 let CAT=[];
@@ -133,7 +137,25 @@ let Q={},cli="detal",tab="Todos",flt="";
 const save=()=>{}; // tablet compartida: nada se guarda en el equipo
 const pu=p=>Object.keys(p.s).reduce((a,z)=>a+(Q[p.id+"|"+z]||0),0);
 const stock=p=>Object.values(p.s).reduce((a,b)=>a+b,0);
-function totals(){let u=0,t=0;CAT.forEach(p=>{const x=pu(p);u+=x;t+=x*p.p[cli]});return{u,t}}
+const tierOf=q=>{const x=q.filter(n=>n>0).sort((a,b)=>b-a),t=x.reduce((a,b)=>a+b,0);
+ if(x.length<3)return"detal";
+ if(t>=12&&x[0]>=8&&x[1]>=2&&x[2]>=2)return"mayor";
+ if(t>=6&&x[0]>=4&&x[1]>=1&&x[2]>=1)return"dist";
+ return"detal"};
+const discPct=(p,u)=>p.disc?(u>=4?15:u===3?10:u===2?5:0):0;
+function pricing(p){
+ const q=Object.keys(p.s).map(z=>Q[p.id+"|"+z]||0),u=q.reduce((a,b)=>a+b,0),bt=CUST?CUST.type:"detal",qt=u?tierOf(q):"detal",tier=RK[qt]>RK[bt]?qt:bt;
+ const pct=tier==="detal"?discPct(p,u):0,unit=tier==="detal"?Math.round(p.p.detal*(1-pct/100)):p.p[tier];
+ let hint="";
+ if(u){
+  if(tier==="detal"){hint=u<6?`Faltan ${6-u} uds para precio distribuidor (en 3 tallas, mínimo 1-1-4)`:"Para precio distribuidor reparte en 3 tallas (mínimo 1-1-4)";
+   if(p.disc&&u<4)hint=`Lleva ${u+1} y ahorra ${discPct(p,u+1)}% · `+hint}
+  else if(tier==="dist")hint=u<12?`Faltan ${12-u} uds para precio mayorista (en 3 tallas, mínimo 2-2-8)`:"Para precio mayorista reparte en 3 tallas (mínimo 2-2-8)"}
+ return{u,tier,pct,unit,hint}}
+const RK={detal:1,dist:2,mayor:3};
+function totals(){let u=0,t=0,sv=0,hi="detal";
+ CAT.forEach(p=>{const x=pu(p);if(!x)return;const r=pricing(p);u+=x;t+=x*r.unit;sv+=x*(p.p.detal-r.unit);if(RK[r.tier]>RK[hi])hi=r.tier});
+ return{u,t,sv,hi}}
 function grid(){
  const tabs=["Todos",...new Set(CAT.filter(p=>p.active).map(p=>p.t))];
  document.getElementById("tabs").innerHTML=tabs.map(x=>`<button class="tab ${x===tab?"on":""}" data-tab="${x}">${x}</button>`).join("");
@@ -141,39 +163,45 @@ function grid(){
  const it=CAT.filter(p=>p.active&&(tab==="Todos"||p.t===tab)&&(!f||(p.id+p.n).toLowerCase().includes(f)));
  document.getElementById("grid").innerHTML=it.length?it.map(p=>{const u=pu(p),s=stock(p);return `<button class="card" data-id="${p.id}">
   ${u?`<span class="qb">${u}</span>`:""}<div class="im">${pic(p,"f")}</div>
-  <div class="ci"><b>${p.n}</b><small>${p.id} · <span class="${s<10?"low":""}">${s>0?s+" disp.":"Agotado"}</span></small><div class="pp">${fmt(p.p[cli])}</div></div></button>`}).join(""):`<div class="empty">Sin resultados</div>`;
+  <div class="ci"><b>${p.n}</b><small>${p.id} · <span class="${s<10?"low":""}">${s>0?s+" disp.":"Agotado"}</span></small><div class="pp">${fmt(pricing(p).unit)}</div><small style="display:block">Mayor desde ${fmt(p.p.mayor)}</small></div></button>`}).join(""):`<div class="empty">Sin resultados</div>`;
  const T=totals();
- document.getElementById("cnt").textContent=T.u+(T.u===1?" unidad":" unidades")+" · "+TN[cli];
+ document.getElementById("cnt").textContent=T.u+(T.u===1?" unidad":" unidades")+(T.hi!=="detal"?" · "+TN[T.hi]:"");
  document.getElementById("tot").textContent=fmt(T.t);
 }
 const D=document.getElementById("dlg");
+function rulesHTML(p,r){
+ const row=(on,t,pp,sub)=>`<div class="rl ${on?"on":""}"><div><b>${t}</b><br><small>${sub}</small></div><b>${fmt(pp)}</b></div>`;
+ return `<div class="rls">${row(r.tier==="detal","Detal",p.p.detal,p.disc?"2 uds −5% · 3 uds −10% · 4 o más −15%":"Hasta 5 unidades")}
+ ${row(r.tier==="dist","Distribuidor",p.p.dist,"6 a 11 uds en 3 tallas (mínimo 1-1-4)")}
+ ${row(r.tier==="mayor","Mayorista",p.p.mayor,"12 o más uds en 3 tallas (mínimo 2-2-8)")}</div>`}
 function detail(id){
- const p=CAT.find(x=>x.id===id);D.dataset.id=id;
+ const p=CAT.find(x=>x.id===id),r=pricing(p);D.dataset.id=id;
  D.innerHTML=`<div style="display:flex;justify-content:flex-end"><button class="x" data-close>×</button></div>
  <div class="two"><figure><div class="im">${pic(p,"f")}</div><figcaption>Frente</figcaption></figure><figure><div class="im">${pic(p,"b")}</div><figcaption>Espalda</figcaption></figure></div>
- <div class="hd"><div><h2>${p.n}</h2><small style="color:var(--mu)">${p.id} · ${stock(p)} unidades en existencia</small></div><div class="pr">${fmt(p.p[cli])}</div></div>
- <div class="chips">${["detal","dist","mayor"].map(k=>`<span class="chip ${k===cli?"on":""}">${TN[k]} ${fmt(p.p[k])}</span>`).join("")}</div>
+ <div class="hd"><div><h2>${p.n}</h2><small style="color:var(--mu)">${p.id} · ${stock(p)} unidades en existencia</small></div>
+ <div style="text-align:right"><div class="pr">${fmt(r.unit)}</div>${r.u?`<small style="color:var(--mu)">${TN[r.tier]}${r.pct?" −"+r.pct+"%":""} · ${r.u} uds</small>`:""}</div></div>
+ ${rulesHTML(p,r)}
+ ${r.hint?`<div class="warn" style="background:rgba(31,95,74,.12);color:var(--ac)">${r.hint}</div>`:""}
  ${Object.keys(p.s).map(z=>{const q=Q[p.id+"|"+z]||0,s=p.s[z];return `<div class="sz"><div class="n">${z}</div><div class="s">${s>0?s+" disponibles":"Agotado"}</div>
  <div class="st"><button data-m="-" data-z="${z}" ${q?"":"disabled"}>−</button><span>${q}</span><button data-m="+" data-z="${z}" ${q>=s?"disabled":""}>+</button></div></div>`}).join("")}
- <div class="row"><button class="btn" data-close>Listo · ${pu(p)} uds</button></div>`;
+ <div class="row"><button class="btn" data-close>Listo · ${r.u} uds</button></div>`;
  if(!D.open)D.showModal();
 }
 function order(){
  const T=totals(),rows=[];
- CAT.forEach(p=>Object.keys(p.s).forEach(z=>{const q=Q[p.id+"|"+z];if(q)rows.push({p,z,q})}));
- let h='<div style="display:flex;justify-content:space-between"><h2 style="margin:0">Mi pedido · '+TN[cli]+'</h2><button class="x" data-close>×</button></div>';
+ CAT.forEach(p=>Object.keys(p.s).forEach(z=>{const q=Q[p.id+"|"+z];if(q)rows.push({p,z,q,r:pricing(p)})}));
+ let h='<div style="display:flex;justify-content:space-between"><h2 style="margin:0">Mi pedido</h2><button class="x" data-close>×</button></div>';
  if(!rows.length)h+='<div class="empty">Aún no has elegido prendas.</div><div class="row"><button class="btn s" data-close>Cerrar</button></div>';
- else{
-  if(T.u<MIN[cli])h+=`<div class="warn">Pedido mínimo para ${TN[cli].toLowerCase()}: ${MIN[cli]} unidades. Llevas ${T.u}.</div>`;
-  h+=`<table><tr><th>Producto</th><th>Cant.</th><th>Precio</th><th>Subtotal</th></tr>${rows.map(({p,z,q})=>`<tr><td>${p.id} · ${z}<br><small style="color:var(--mu)">${p.n}</small></td><td>${q}</td><td>${fmt(p.p[cli])}</td><td>${fmt(q*p.p[cli])}</td></tr>`).join("")}
-  <tr class="tot"><td colspan="3">Total (${T.u} uds)</td><td>${fmt(T.t)}</td></tr></table>
-  <div class="row"><button class="btn s" data-act="clr">Vaciar</button><button class="btn s" data-act="cp">Copiar</button><button class="btn" data-act="apart">Apartar</button>${sess?'<button class="btn" data-act="sell">Vender ahora</button>':""}</div>`}
+ else h+=`<table><tr><th>Producto</th><th>Cant.</th><th>Precio</th><th>Subtotal</th></tr>${rows.map(({p,z,q,r})=>`<tr><td>${p.id} · ${z}<br><small style="color:var(--mu)">${p.n} · ${TN[r.tier]}${r.pct?" −"+r.pct+"%":""}</small></td><td>${q}</td><td>${fmt(r.unit)}</td><td>${fmt(q*r.unit)}</td></tr>`).join("")}
+ ${T.sv>0?`<tr><td colspan="3">Ahorro</td><td style="color:var(--ac)">−${fmt(T.sv)}</td></tr>`:""}
+ <tr class="tot"><td colspan="3">Total (${T.u} uds)</td><td>${fmt(T.t)}</td></tr></table>
+ <div class="row"><button class="btn s" data-act="clr">Vaciar</button><button class="btn s" data-act="cp">Copiar</button><button class="btn" data-act="apart">Apartar</button>${sess?'<button class="btn" data-act="sell">Vender ahora</button>':""}</div>`;
  D.innerHTML=h;D.dataset.id="";if(!D.open)D.showModal();
 }
 function texto(){
  const T=totals(),l=[];
- CAT.forEach(p=>Object.keys(p.s).forEach(z=>{const q=Q[p.id+"|"+z];if(q)l.push(`${q} x ${p.id} ${p.n} talla ${z} @ ${fmt(p.p[cli])}`)}));
- return `PEDIDO (${TN[cli]})\n`+l.join("\n")+`\nTOTAL: ${fmt(T.t)}`}
+ CAT.forEach(p=>Object.keys(p.s).forEach(z=>{const q=Q[p.id+"|"+z];if(q)l.push(`${q} x ${p.id} ${p.n} talla ${z} @ ${fmt(pricing(p).unit)}`)}));
+ return "PEDIDO\n"+l.join("\n")+`\nTOTAL: ${fmt(T.t)}`}
 D.addEventListener("click",async e=>{
  const b=e.target.closest("button");
  if(!b){if(e.target===D)D.close();return}
@@ -188,8 +216,6 @@ D.addEventListener("click",async e=>{
 document.getElementById("grid").addEventListener("click",e=>{const c=e.target.closest(".card");if(c)detail(c.dataset.id)});
 document.getElementById("tabs").addEventListener("click",e=>{const b=e.target.closest("[data-tab]");if(b){tab=b.dataset.tab;grid()}});
 document.getElementById("q").addEventListener("input",e=>{flt=e.target.value;grid()});
-const sel=document.getElementById("cli");sel.value=cli;
-sel.addEventListener("change",()=>{cli=sel.value;save();grid()});
 document.getElementById("ver").onclick=order;
 let sb=null;
 const esc=t=>String(t).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -198,7 +224,7 @@ async function load(){
  if(!sb){G.innerHTML='<div class="empty">Configura SB_URL y SB_KEY al inicio del código.</div>';return}
  const{data,error}=await sb.from("products").select("*,product_sizes(size,stock,reserved,sort)").order("created_at");
  if(error){G.innerHTML='<div class="empty">No se pudo cargar: '+esc(error.message)+'</div>';return}
- CAT=data.map(r=>({id:esc(r.id),t:esc(r.type),n:esc(r.name),c:r.color,a:r.accent,active:r.active,
+ CAT=data.map(r=>({id:esc(r.id),t:esc(r.type),n:esc(r.name),c:r.color,a:r.accent,active:r.active,disc:r.disc_detal,
   p:{detal:r.price_detal,dist:r.price_dist,mayor:r.price_mayor},
   s:Object.fromEntries(r.product_sizes.sort((x,y)=>x.sort-y.sort).map(z=>[z.size,z.stock-z.reserved])),raw:Object.fromEntries(r.product_sizes.map(z=>[z.size,z])),
   img:r.img_front?[r.img_front,r.img_back||r.img_front]:null}));
@@ -227,6 +253,7 @@ function aRender(){
    <label>Tallas (separadas por coma)<input id="f_s" value="${Object.keys(p.s).join(",")}"></label>
    <label>Color del dibujo<input id="f_c" type="color" value="${p.c}"></label>
    <label>Color de detalle<input id="f_a" type="color" value="${p.a}"></label>
+   <label class="f" style="flex-direction:row;align-items:center;gap:8px"><input id="f_d" type="checkbox" style="width:auto" ${p.disc?"checked":""}> Aplica descuento detal por cantidad (2 uds 5%, 3 uds 10%, 4 o más 15%)</label>
    <label>Foto frente<input id="f_if" type="file" accept="image/*"></label>
    <label>Foto espalda<input id="f_ib" type="file" accept="image/*"></label>
   </div>
@@ -235,7 +262,7 @@ function aRender(){
   h=tabsBar()+`<div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0">Inventario</h2><button class="x" data-close>×</button></div>
   <div class="ba" style="margin-top:8px"><button class="btn mini" data-a="new">+ Nuevo producto</button><button class="btn s mini" data-a="out">Salir</button></div>
   <small style="color:var(--mu)">Escribe la existencia actual por talla y pulsa Guardar stock.</small>
-  ${CAT.map(p=>`<div class="ap ${p.active?"":"off"}"><div class="ah"><div class="im">${pic(p,"f")}</div><div style="flex:1"><b>${p.n}</b><br><small style="color:var(--mu)">${p.id} · ${p.t}${p.active?"":" · Oculto"}</small></div></div>
+  ${CAT.map(p=>`<div class="ap ${p.active?"":"off"}"><div class="ah"><div class="im">${pic(p,"f")}</div><div style="flex:1"><b>${p.n}</b><br><small style="color:var(--mu)">${p.id} · ${p.t}${p.disc?" · Desc. detal":""}${p.active?"":" · Oculto"}</small></div></div>
   <div class="sg">${Object.entries(p.raw).map(([z,v])=>`<label>${z}<input type="number" min="0" value="${v.stock}" data-ps="${p.id}" data-z="${z}">${v.reserved?`<small>apart. ${v.reserved}</small>`:""}</label>`).join("")}</div>
   <div class="ba"><button class="btn mini" data-a="stock" data-id="${p.id}">Guardar stock</button><button class="btn s mini" data-a="zero" data-id="${p.id}">Agotar</button><button class="btn s mini" data-a="edit" data-id="${p.id}">Editar</button><button class="btn s mini" data-a="tog" data-id="${p.id}">${p.active?"Ocultar":"Mostrar"}</button><button class="btn s mini" data-a="del" data-id="${p.id}">Eliminar</button></div></div>`).join("")||'<div class="empty">Sin productos. Agrega el primero.</div>'}`;
  }
@@ -255,7 +282,7 @@ async function saveP(){
  if(!id||!name){alert("Falta la referencia o el nombre");return}
  if(n&&CAT.some(p=>p.id===id)){alert("Esa referencia ya existe");return}
  const row={id,type:g("f_t").value.trim()||"Otros",name,color:g("f_c").value,accent:g("f_a").value,
-  price_detal:+g("f_pd").value||0,price_dist:+g("f_pi").value||0,price_mayor:+g("f_pm").value||0};
+  price_detal:+g("f_pd").value||0,price_dist:+g("f_pi").value||0,price_mayor:+g("f_pm").value||0,disc_detal:g("f_d").checked};
  const bt=g("f_save");bt.disabled=true;bt.textContent="Guardando…";
  try{
   for(const[k,i]of[["img_front","f_if"],["img_back","f_ib"]]){const f=g(i).files[0];if(f)row[k]=await up(id,await shrink(f),k)}
@@ -293,7 +320,7 @@ A.addEventListener("click",async e=>{
   else if(a==="cnew"||a==="cedit"){ecus=a==="cnew"?"new":id;aRender()}
   else if(a==="cback"){ecus=null;aRender()}
   else if(a==="csave"){
-   const row={cedula:g("c_c").value.replace(/\D/g,""),name:g("c_n").value.trim(),phone:g("c_p").value.trim(),type:g("c_t").value};
+   const row={cedula:g("c_c").value.replace(/\D/g,""),name:g("c_n").value.trim(),phone:g("c_p").value.trim(),email:g("c_e").value.trim(),city:g("c_ci").value.trim(),address:g("c_ad").value.trim(),type:g("c_t").value};
    if(row.cedula.length<5||!row.name){alert("Falta la cédula o el nombre");return}
    const r=ecus==="new"?await sb.from("customers").insert(row):await sb.from("customers").update(row).eq("id",ecus);
    if(r.error)throw r.error;ecus=null;await aLoad();aRender()}
@@ -314,91 +341,103 @@ let CUS=[],RES=[],atab="inv",ecus=null,rfil="activo",cq="";
 const tabsBar=()=>`<div class="tabs" style="margin:0 0 8px">${[["inv","Inventario"],["cli","Clientes"],["ped","Pedidos"]].map(([k,t])=>`<button class="tab ${atab===k?"on":""}" data-a="tab" data-id="${k}">${t}</button>`).join("")}</div>`;
 async function aLoad(){
  if(atab==="cli"){const r=await sb.from("customers").select("*").order("name");if(r.error)throw r.error;CUS=r.data}
- if(atab==="ped"){const r=await sb.from("reservations").select("id,status,total,created_at,customers(name,cedula,type),reservation_items(product_id,size,qty)").order("created_at",{ascending:false}).limit(150);if(r.error)throw r.error;RES=r.data}
+ if(atab==="ped"){const r=await sb.from("reservations").select("id,status,total,created_at,customers(name,cedula,type,phone,city,address),reservation_items(product_id,size,qty,unit_price)").order("created_at",{ascending:false}).limit(150);if(r.error)throw r.error;RES=r.data}
 }
 function cliHTML(){
  const q=cq.toLowerCase(),L=CUS.filter(c=>!q||(c.name+c.cedula+(c.phone||"")).toLowerCase().includes(q));
  return tabsBar()+`<div class="ba"><button class="btn mini" data-a="cnew">+ Nuevo cliente</button><button class="btn s mini" data-a="out">Salir</button><button class="x" data-close style="margin-left:auto">×</button></div>
  <input type="search" id="cq" placeholder="Buscar por nombre, cédula o teléfono" value="${esc(cq)}" style="width:100%;margin:8px 0">
  <small style="color:var(--mu)">${CUS.length} clientes registrados</small>
- ${L.map(c=>`<div class="ap"><div class="ah"><div style="flex:1"><b>${esc(c.name)}</b><br><small style="color:var(--mu)">CC ${esc(c.cedula)} · ${esc(c.phone||"sin teléfono")}</small></div><span class="chip ${c.type!=="detal"?"on":""}">${TN[c.type]}</span></div>
+ ${L.map(c=>`<div class="ap"><div class="ah"><div style="flex:1"><b>${esc(c.name)}</b><br><small style="color:var(--mu)">CC ${esc(c.cedula)} · ${esc(c.phone||"sin teléfono")}${c.email?" · "+esc(c.email):""}${c.city?"<br>"+esc(c.city)+" · "+esc(c.address||""):""}</small></div><span class="chip ${c.type!=="detal"?"on":""}">${TN[c.type]}</span></div>
  <div class="ba" style="margin-top:8px"><button class="btn s mini" data-a="cedit" data-id="${c.id}">Editar</button><button class="btn s mini" data-a="cdel" data-id="${c.id}">Eliminar</button></div></div>`).join("")||'<div class="empty">Sin clientes</div>'}`}
 function cusForm(){
  const n=ecus==="new",c=n?{cedula:"",name:"",phone:"",type:"detal"}:CUS.find(x=>x.id===ecus);
  return `<div style="display:flex;justify-content:space-between"><h2 style="margin:0">${n?"Nuevo cliente":"Editar cliente"}</h2><button class="x" data-close>×</button></div>
  <div class="fm"><label>Cédula<input id="c_c" inputmode="numeric" value="${esc(c.cedula)}"></label>
  <label>Tipo de cliente<select id="c_t">${["detal","dist","mayor"].map(k=>`<option value="${k}" ${c.type===k?"selected":""}>${TN[k]}</option>`).join("")}</select></label>
- <label class="f">Nombre<input id="c_n" value="${esc(c.name)}"></label><label class="f">Teléfono<input id="c_p" type="tel" value="${esc(c.phone||"")}"></label></div>
+ <label class="f">Nombre<input id="c_n" value="${esc(c.name)}"></label><label>Teléfono<input id="c_p" type="tel" value="${esc(c.phone||"")}"></label><label>Correo<input id="c_e" type="email" value="${esc(c.email||"")}"></label><label>Ciudad<input id="c_ci" value="${esc(c.city||"")}"></label><label>Dirección<input id="c_ad" value="${esc(c.address||"")}"></label></div>
  <div class="row"><button class="btn s" data-a="cback">Cancelar</button><button class="btn" data-a="csave">Guardar</button></div>`}
 function pedHTML(){
  const L=RES.filter(r=>rfil==="activo"?r.status==="activo":r.status!=="activo"),ST={activo:"Apartado",vendido:"Vendido",cancelado:"Liberado"};
  return tabsBar()+`<div class="ba"><button class="tab ${rfil==="activo"?"on":""}" data-a="rf" data-id="activo">Apartados activos</button><button class="tab ${rfil!=="activo"?"on":""}" data-a="rf" data-id="hist">Historial</button><button class="x" data-close style="margin-left:auto">×</button></div>
- ${L.map(r=>{const c=r.customers||{};return `<div class="ap"><div class="ah"><div style="flex:1"><b>${esc(c.name||"—")}</b> <small style="color:var(--mu)">CC ${esc(c.cedula||"")} · ${TN[c.type]||""}</small><br><small style="color:var(--mu)">${new Date(r.created_at).toLocaleString("es-CO")} · ${ST[r.status]}</small></div><b>${fmt(r.total)}</b></div>
- <div style="font-size:13px;margin:6px 0">${r.reservation_items.map(i=>`${i.qty} × ${esc(i.product_id)} talla ${esc(i.size)}`).join("<br>")}</div>
+ ${L.map(r=>{const c=r.customers||{};return `<div class="ap"><div class="ah"><div style="flex:1"><b>${esc(c.name||"—")}</b> <small style="color:var(--mu)">CC ${esc(c.cedula||"")} · ${esc(c.phone||"")}${c.city?" · "+esc(c.city):""}${c.address?" · "+esc(c.address):""}</small><br><small style="color:var(--mu)">${new Date(r.created_at).toLocaleString("es-CO")} · ${ST[r.status]}</small></div><b>${fmt(r.total)}</b></div>
+ <div style="font-size:13px;margin:6px 0">${r.reservation_items.map(i=>`${i.qty} × ${esc(i.product_id)} talla ${esc(i.size)} · ${fmt(i.unit_price)} c/u`).join("<br>")}</div>
  ${r.status==="activo"?`<div class="ba"><button class="btn mini" data-a="rsell" data-id="${r.id}">Vender (descontar)</button><button class="btn s mini" data-a="rrel" data-id="${r.id}">Liberar</button></div>`:""}</div>`}).join("")||'<div class="empty">Nada por aquí</div>'}`}
 A.addEventListener("input",e=>{if(e.target.id==="cq"){cq=e.target.value;aRender();const i=g("cq");i.focus();i.setSelectionRange(i.value.length,i.value.length)}});
 
-// ===== CLIENTE EN LA TABLET =====
-let CUST=null,idle=null,pend="",done=false;
+// ===== CLIENTE Y FINALIZAR PEDIDO =====
+let idle=null,kindNow="apart",CUST=null;
+function updSel(){}
 const C=document.getElementById("cdlg"),cb=document.getElementById("cbtn");
-function updSel(){sel.disabled=!sess||!!CUST}
-function setCust(c){
- CUST=c;
- if(c){cli=c.type;sel.value=cli;cb.textContent="👤 "+c.name.split(" ")[0]+" · Salir"}
- else{cli="detal";sel.value="detal";cb.textContent="👤 Ingresar con cédula";Q={}}
- updSel();grid()}
-function cOpen(){cRender("ced");if(!C.open)C.showModal()}
-function cRender(st){
- const X='<div style="display:flex;justify-content:flex-end"><button class="x" data-close>×</button></div>';
- if(st==="ced")C.innerHTML=X+`<h2 style="margin:0 0 6px">Bienvenido</h2><p style="color:var(--mu);margin:0 0 12px">Ingresa tu número de cédula para ver tus precios.</p>
+const XB='<div style="display:flex;justify-content:flex-end"><button class="x" data-close>×</button></div>';
+function setCust(c){CUST=c;cb.textContent=c?"👤 "+c.first+" · "+TN[c.type]+" · Salir":"👤 Soy cliente";if(!c)Q={};grid()}
+cb.onclick=()=>{
+ if(CUST){setCust(null);return}
+ if(!sb){alert("Falta configurar Supabase");return}
+ C.innerHTML=XB+`<h2 style="margin:0 0 6px">¡Bienvenido de nuevo!</h2><p style="color:var(--mu);margin:0 0 12px">Escribe tu número de cédula y verás tus precios.</p>
  <input id="ced" inputmode="numeric" placeholder="Número de cédula" autofocus style="width:100%;padding:14px;font-size:22px;border:1px solid var(--bd);border-radius:12px;background:var(--bg);color:var(--tx)">
  <div id="cmsg" style="color:#b45309;margin-top:8px;min-height:20px"></div>
- <div class="row"><button class="btn s" data-close>Ver sin cédula</button><button class="btn" id="cgo" data-a="clog">Continuar</button></div>`;
- else C.innerHTML=X+`<h2 style="margin:0 0 6px">Regístrate</h2><p style="color:var(--mu)">No encontramos la cédula ${esc(pend)}. Déjanos tus datos para continuar.</p>
- <div class="fm"><label class="f">Nombre completo<input id="rn"></label><label class="f">Teléfono<input id="rp" type="tel"></label></div>
- <div class="row"><button class="btn s" data-a="cback">Atrás</button><button class="btn" id="cgo" data-a="creg">Guardar y continuar</button></div>`;
+ <div class="row"><button class="btn s" data-close>Cancelar</button><button class="btn" id="cgo" data-a="idgo">Continuar</button></div>`;
+ C.showModal()};
+async function ident(b){
+ const ced=C.querySelector("#ced").value.replace(/\D/g,""),m=C.querySelector("#cmsg");
+ if(ced.length<5){m.textContent="Escribe tu cédula completa";return}
+ b.disabled=true;
+ const{data,error}=await sb.rpc("lookup_customer",{p_ced:ced});b.disabled=false;
+ if(error){m.textContent=error.message;return}
+ if(!data){m.textContent="No encontramos esa cédula. Elige tus prendas y te registras al finalizar el pedido.";return}
+ setCust({ced,first:data.first,type:data.type,has:data.has_contact,addr:data.has_addr});C.close()}
+function submit(kind){
+ const T=totals();if(!T.u)return;
+ if(!sb){alert("Falta configurar Supabase");return}
+ kindNow=kind;const w=T.hi!=="detal",ok=CUST&&CUST.has&&(!w||CUST.addr);
+ const top=`<div style="display:flex;justify-content:space-between"><h2 style="margin:0">${kind==="sell"?"Registrar venta":"Finaliza tu pedido"}</h2><button class="x" data-close>×</button></div>`;
+ const bot=`<div id="rmsg" style="color:#b45309;margin-top:8px;min-height:18px"></div><div class="row"><button class="btn s" data-a="back">Volver</button><button class="btn" id="cgo" data-a="send">${kind==="sell"?"Registrar venta":"Confirmar y apartar"}</button></div>`;
+ C.innerHTML=ok?top+`<p style="margin:10px 0">Pedido a nombre de <b>${esc(CUST.first)}</b> · ${TN[CUST.type]} · ${T.u} uds · Total <b>${fmt(T.t)}</b></p>`+bot
+ :top+`<p style="color:var(--mu);margin:6px 0">${w?"Compra "+TN[T.hi].toLowerCase()+": necesitamos tus datos completos.":"Compra detal: déjanos tus datos de contacto."} Total <b>${fmt(T.t)}</b></p>
+ <div class="fm"><label class="f">Cédula<input id="r_c" inputmode="numeric" value="${CUST?esc(CUST.ced):""}"></label>
+ <label class="f">Nombre completo<input id="r_n"></label>
+ <label>Teléfono<input id="r_p" type="tel"></label><label>Correo<input id="r_e" type="email"></label>
+ ${w?'<label>Ciudad<input id="r_ci"></label><label>Dirección<input id="r_ad"></label>':""}</div>`+bot;
+ D.close();C.showModal();
 }
 C.addEventListener("keydown",e=>{if(e.key==="Enter"){const b=C.querySelector("#cgo");if(b)b.click()}});
 C.addEventListener("click",async e=>{
  const b=e.target.closest("button");if(!b)return;
  if(b.hasAttribute("data-close")){C.close();return}
- try{
-  if(b.dataset.a==="cback")cRender("ced");
-  else if(b.dataset.a==="clog"){
-   const ced=C.querySelector("#ced").value.replace(/\D/g,"");
-   if(ced.length<5){C.querySelector("#cmsg").textContent="Escribe tu cédula completa";return}
-   const{data,error}=await sb.rpc("lookup_customer",{p_ced:ced});if(error)throw error;
-   if(data){setCust({ced,name:data.name,type:data.type});C.close()}else{pend=ced;cRender("reg")}
-  }else if(b.dataset.a==="creg"){
-   const name=C.querySelector("#rn").value.trim();
-   if(name.length<2){alert("Escribe tu nombre");return}
-   const{data,error}=await sb.rpc("registrar_cliente",{p_ced:pend,p_name:name,p_phone:C.querySelector("#rp").value});if(error)throw error;
-   setCust({ced:pend,name:data.name,type:data.type});C.close()}
- }catch(x){alert("Error: "+x.message)}
+ if(b.dataset.a==="back"){C.close();order();return}
+ try{if(b.dataset.a==="idgo")await ident(b);if(b.dataset.a==="send")await send(b)}catch(x){alert("Error: "+x.message)}
 });
-cb.onclick=()=>{if(CUST)setCust(null);else if(sb)cOpen()};
-async function submit(kind){
- if(!sb){alert("Falta configurar Supabase");return}
- if(!CUST){D.close();cOpen();return}
+async function send(b){
+ const v=i=>{const x=C.querySelector("#"+i);return x?x.value.trim():""},m=C.querySelector("#rmsg");
+ const T=totals(),w=T.hi!=="detal",direct=!C.querySelector("#r_n");
+ let ced,name,f={p_name:"",p_phone:"",p_email:"",p_city:"",p_address:""};
+ if(direct){ced=CUST.ced;name=CUST.first}
+ else{
+  ced=v("r_c").replace(/\D/g,"");name=v("r_n");
+  const err=ced.length<5?"Escribe tu cédula completa":name.length<2?"Escribe tu nombre":v("r_p").replace(/\D/g,"").length<7?"Escribe un teléfono válido":!/^\S+@\S+\.\S+$/.test(v("r_e"))?"Escribe un correo válido":(w&&(v("r_ci").length<2||v("r_ad").length<5))?"Falta la ciudad o la dirección":"";
+  if(err){m.textContent=err;return}
+  f={p_name:name,p_phone:v("r_p"),p_email:v("r_e"),p_city:v("r_ci"),p_address:v("r_ad")};
+ }
  const items=[];CAT.forEach(p=>Object.keys(p.s).forEach(z=>{const q=Q[p.id+"|"+z];if(q)items.push({product_id:p.id,size:z,qty:q})}));
- if(!items.length)return;
- const{data,error}=await sb.rpc(kind==="sell"?"vender_directo":"apartar",{p_ced:CUST.ced,p_items:items});
- if(error){alert(error.message);return}
- const nm=CUST.name;setCust(null);await load();done=true;
- D.innerHTML=`<div class="empty"><h2 style="color:var(--tx);margin:0 0 6px">${kind==="sell"?"Venta registrada":"¡Pedido apartado!"}</h2>
- <p>${esc(nm)}, tu referencia es <b>#${data.n}</b> por <b>${fmt(data.total)}</b>.${kind==="sell"?"":"<br>Tus unidades quedaron reservadas. Pasa por caja para completar la compra."}</p></div><div class="row"><button class="btn" data-close>Listo</button></div>`;
+ b.disabled=true;b.textContent="Enviando…";
+ const{data,error}=await sb.rpc(kindNow==="sell"?"vender_directo":"apartar",{p_ced:ced,...f,p_items:items});
+ if(error){m.textContent=error.message;b.disabled=false;b.textContent="Reintentar";return}
+ setCust(null);await load();C.close();
+ D.innerHTML=`<div class="empty"><h2 style="color:var(--tx);margin:0 0 6px">${kindNow==="sell"?"Venta registrada":"¡Pedido apartado!"}</h2>
+ <p>${esc(name)}, tu referencia es <b>#${data.n}</b> por <b>${fmt(data.total)}</b>.${kindNow==="sell"?"":"<br>Tus unidades quedaron reservadas. Pasa por caja para completar la compra."}</p></div><div class="row"><button class="btn" data-close>Listo</button></div>`;
+ D.showModal();
 }
-D.addEventListener("close",()=>{if(done){done=false;cOpen()}});
-// Tablet compartida: tras 3 min sin tocar, se cierra todo
+// Tablet compartida: tras 3 min sin tocar, se cierra la sesión del cliente y del admin y se vacía el pedido
 function bump(){clearTimeout(idle);idle=setTimeout(async()=>{
  if(sess){try{await sb.auth.signOut()}catch(e){}sess=null}
- [A,D].forEach(d=>d.open&&d.close());setCust(null);if(sb)cOpen()},180000)}
+ [A,D,C].forEach(d=>d.open&&d.close());setCust(null)},180000)}
 ["click","touchstart","keydown"].forEach(ev=>document.addEventListener(ev,bump,true));
 if(SB_URL.startsWith("http")){
  sb=supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:false}});
  sb.channel("cat").on("postgres_changes",{event:"*",schema:"public"},()=>load()).subscribe();
 }
-updSel();load();if(sb)cOpen();bump();
+load();bump();
 </script>
 </body>
 </html>
